@@ -111,6 +111,12 @@ func applyLiveOrProgress(s *Snapshot) error {
 	if reason := eventString(live["failure_reason"]); reason != "" {
 		s.FailureReason = reason
 	}
+	// Surface attempt progress from events that carry attempt/max fields.
+	// This lets the default status output show "attempt 3/11" without --verbose.
+	if a := eventInt(live["attempt"]); a > 0 {
+		s.CurrentAttempt = a
+		s.MaxAttempts = eventInt(live["max"])
+	}
 	return nil
 }
 
@@ -207,8 +213,37 @@ func ApplyVerbose(s *Snapshot) error {
 	if err := applyStageTrace(s); err != nil {
 		return err
 	}
+	// Enrich RetryCounts from the stage trace so completed runs show accurate
+	// retry history even though checkpoint node_retries resets to 0 on success.
+	// Only sets a count if the trace shows a node actually retried (attempt > 1).
+	applyRetryCountsFromTrace(s)
 	applyWorktreeArtifacts(s)
 	return nil
+}
+
+// applyRetryCountsFromTrace scans the stage trace and records the maximum
+// retry count seen per node. It only updates RetryCounts when the trace shows
+// a higher value than what the checkpoint reported, so in-progress runs with
+// accurate live checkpoint data are never downgraded.
+func applyRetryCountsFromTrace(s *Snapshot) {
+	maxAttemptSeen := map[string]int{}
+	for _, sa := range s.StageTrace {
+		if sa.Attempt > maxAttemptSeen[sa.NodeID] {
+			maxAttemptSeen[sa.NodeID] = sa.Attempt
+		}
+	}
+	for nodeID, maxAttempt := range maxAttemptSeen {
+		retries := maxAttempt - 1 // attempt 3 → 2 retries
+		if retries <= 0 {
+			continue
+		}
+		if s.RetryCounts == nil {
+			s.RetryCounts = map[string]int{}
+		}
+		if retries > s.RetryCounts[nodeID] {
+			s.RetryCounts[nodeID] = retries
+		}
+	}
 }
 
 type checkpointDoc struct {

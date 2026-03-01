@@ -140,6 +140,56 @@ func TestApplyVerbose_MissingFilesAreSkipped(t *testing.T) {
 	}
 }
 
+// TestLoadSnapshot_SurfacesAttemptFromLiveEvent verifies that attempt/max fields
+// in live.json are surfaced in the default (non-verbose) snapshot so users can
+// see "attempt 3/11" without needing --verbose.
+func TestLoadSnapshot_SurfacesAttemptFromLiveEvent(t *testing.T) {
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "live.json"),
+		[]byte(`{"event":"stage_attempt_start","node_id":"verify_build","attempt":3,"max":11}`), 0o644)
+
+	s, err := LoadSnapshot(root)
+	if err != nil {
+		t.Fatalf("LoadSnapshot: %v", err)
+	}
+	if s.CurrentAttempt != 3 {
+		t.Fatalf("current_attempt=%d want 3", s.CurrentAttempt)
+	}
+	if s.MaxAttempts != 11 {
+		t.Fatalf("max_attempts=%d want 11", s.MaxAttempts)
+	}
+}
+
+// TestApplyVerbose_RetryCountsFromTraceForCompletedRuns verifies that
+// applyRetryCountsFromTrace enriches RetryCounts from progress.ndjson even
+// when checkpoint node_retries was reset to 0 on success. This covers the
+// "completed run shows no retries" gap.
+func TestApplyVerbose_RetryCountsFromTraceForCompletedRuns(t *testing.T) {
+	root := t.TempDir()
+
+	// Simulate a node that retried 3 times (4 attempts) and eventually succeeded.
+	// checkpoint.json shows node_retries=0 because the node succeeded (reset).
+	_ = os.WriteFile(filepath.Join(root, "checkpoint.json"),
+		[]byte(`{"completed_nodes":["impl"],"node_retries":{"impl":0}}`), 0o644)
+
+	ndjson := `{"event":"stage_attempt_end","node_id":"impl","status":"fail","attempt":1,"max":4}
+{"event":"stage_attempt_end","node_id":"impl","status":"fail","attempt":2,"max":4}
+{"event":"stage_attempt_end","node_id":"impl","status":"fail","attempt":3,"max":4}
+{"event":"stage_attempt_end","node_id":"impl","status":"success","attempt":4,"max":4}
+`
+	_ = os.WriteFile(filepath.Join(root, "progress.ndjson"), []byte(ndjson), 0o644)
+
+	s := &Snapshot{LogsRoot: root}
+	if err := ApplyVerbose(s); err != nil {
+		t.Fatalf("ApplyVerbose: %v", err)
+	}
+
+	// Should show 3 retries (4 attempts - 1) even though checkpoint had 0.
+	if s.RetryCounts["impl"] != 3 {
+		t.Fatalf("retry_counts[impl]=%d want 3 (derived from stage trace)", s.RetryCounts["impl"])
+	}
+}
+
 func TestLoadSnapshot_TerminalStateIgnoresMalformedPIDFile(t *testing.T) {
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "final.json"), []byte(`{"status":"success","run_id":"r1"}`), 0o644)

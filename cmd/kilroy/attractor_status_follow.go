@@ -410,6 +410,9 @@ func printSnapshot(logsRoot string, stdout io.Writer, stderr io.Writer, asJSON b
 	fmt.Fprintf(stdout, "run_id=%s\n", snapshot.RunID)
 	fmt.Fprintf(stdout, "node=%s\n", snapshot.CurrentNodeID)
 	fmt.Fprintf(stdout, "event=%s\n", snapshot.LastEvent)
+	if snapshot.CurrentAttempt > 0 {
+		fmt.Fprintf(stdout, "attempt=%d/%d\n", snapshot.CurrentAttempt, snapshot.MaxAttempts)
+	}
 	fmt.Fprintf(stdout, "pid=%d\n", snapshot.PID)
 	fmt.Fprintf(stdout, "pid_alive=%t\n", snapshot.PIDAlive)
 	if !snapshot.LastEventAt.IsZero() {

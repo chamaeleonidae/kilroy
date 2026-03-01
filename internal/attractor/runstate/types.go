@@ -26,15 +26,17 @@ type EdgeTransition struct {
 }
 
 type Snapshot struct {
-	LogsRoot      string    `json:"logs_root"`
-	RunID         string    `json:"run_id,omitempty"`
-	State         State     `json:"state"`
-	CurrentNodeID string    `json:"current_node_id,omitempty"`
-	LastEvent     string    `json:"last_event,omitempty"`
-	LastEventAt   time.Time `json:"last_event_at,omitempty"`
-	FailureReason string    `json:"failure_reason,omitempty"`
-	PID           int       `json:"pid,omitempty"`
-	PIDAlive      bool      `json:"pid_alive"`
+	LogsRoot       string    `json:"logs_root"`
+	RunID          string    `json:"run_id,omitempty"`
+	State          State     `json:"state"`
+	CurrentNodeID  string    `json:"current_node_id,omitempty"`
+	LastEvent      string    `json:"last_event,omitempty"`
+	LastEventAt    time.Time `json:"last_event_at,omitempty"`
+	FailureReason  string    `json:"failure_reason,omitempty"`
+	PID            int       `json:"pid,omitempty"`
+	PIDAlive       bool      `json:"pid_alive"`
+	CurrentAttempt int       `json:"current_attempt,omitempty"`
+	MaxAttempts    int       `json:"max_attempts,omitempty"`
 
 	// Verbose fields (populated only when requested via ApplyVerbose)
 	FinalCommitSHA string           `json:"final_commit_sha,omitempty"`
