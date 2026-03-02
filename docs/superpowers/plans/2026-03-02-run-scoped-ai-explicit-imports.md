@@ -62,11 +62,11 @@ This is one integrated subsystem change (input materialization boundary + run-sc
 - Modify guardrail tests:
   - `internal/attractor/validate/create_runfile_template_guardrail_test.go`
   - `internal/attractor/validate/reference_template_guardrail_test.go`
-  - `internal/attractor/validate/input_materialization_contract_guardrail_test.go`
 - Modify canonical examples that currently model root `.ai` run scratch:
   - `demo/substack-pipeline-v01.dot`
+  - `demo/substack-run-v01.yaml`
   - `docs/strongdm/dot specs/semport.dot`
-  - Any additional matches from `rg -n "\.ai/" demo docs/strongdm -g '*.dot'` that represent run scratch state.
+  - Any additional matches from `rg -n "\.ai/" demo docs/strongdm -g '*.{dot,yaml}'` that represent run scratch state.
 - Modify spec/docs references where defaults/path contracts are normative:
   - `docs/strongdm/attractor/attractor-spec.md`
   - `docs/strongdm/attractor/README.md`
@@ -652,6 +652,7 @@ func normalizeAndValidatePromoteRunScoped(entries []string) ([]string, error) {
 	return out, nil
 }
 
+// Inside LoadRunConfigFile, after strict decode, add:
 normalized, err := normalizeAndValidatePromoteRunScoped(m.FanIn.PromoteRunScoped)
 if err != nil {
 	return err
@@ -1006,13 +1007,49 @@ digraph R {
 }
 `)
 
+var fanInPromotionDOT = []byte(`
+digraph FP {
+  graph [goal="lineage fan-in promotion"]
+  start [shape=Mdiamond]
+  par [shape=component]
+  a [shape=parallelogram, tool_command="mkdir -p .ai/runs/$KILROY_RUN_ID && printf merged-content > .ai/runs/$KILROY_RUN_ID/postmortem_latest.md && printf review-content > .ai/runs/$KILROY_RUN_ID/review_final.md"]
+  b [shape=parallelogram, tool_command="mkdir -p .ai/runs/$KILROY_RUN_ID && printf merged-content > .ai/runs/$KILROY_RUN_ID/postmortem_latest.md && printf review-content > .ai/runs/$KILROY_RUN_ID/review_final.md"]
+  join [shape=tripleoctagon]
+  exit [shape=Msquare]
+  start -> par
+  par -> a
+  par -> b
+  a -> join
+  b -> join
+  join -> exit
+}
+`)
+
+var fanInConflictDOT = []byte(`
+digraph FC {
+  graph [goal="lineage fan-in conflict"]
+  start [shape=Mdiamond]
+  par [shape=component]
+  a [shape=parallelogram, tool_command="mkdir -p .ai/runs/$KILROY_RUN_ID && printf a-content > .ai/runs/$KILROY_RUN_ID/postmortem_latest.md && printf a-z > .ai/runs/$KILROY_RUN_ID/z.md && printf a-a > .ai/runs/$KILROY_RUN_ID/a.md"]
+  b [shape=parallelogram, tool_command="mkdir -p .ai/runs/$KILROY_RUN_ID && printf b-content > .ai/runs/$KILROY_RUN_ID/postmortem_latest.md && printf b-z > .ai/runs/$KILROY_RUN_ID/z.md && printf b-a > .ai/runs/$KILROY_RUN_ID/a.md"]
+  join [shape=tripleoctagon]
+  exit [shape=Msquare]
+  start -> par
+  par -> a
+  par -> b
+  a -> join
+  b -> join
+  join -> exit
+}
+`)
+
 func runParallelPromotionFixture(t *testing.T, promote []string) *Result {
 	t.Helper()
 	repo := initTestRepo(t)
 	logsRoot := t.TempDir()
 	cfg := newInputMaterializationRunConfigForTest(t, repo)
 	cfg.Inputs.Materialize.FanIn.PromoteRunScoped = append([]string{}, promote...)
-	res, err := RunWithConfig(context.Background(), branchIsolationDOT, cfg, RunOptions{RunID: "lineage-promotion", LogsRoot: logsRoot, DisableCXDB: true})
+	res, err := RunWithConfig(context.Background(), fanInPromotionDOT, cfg, RunOptions{RunID: "lineage-promotion", LogsRoot: logsRoot, DisableCXDB: true})
 	if err != nil {
 		t.Fatalf("RunWithConfig: %v", err)
 	}
@@ -1021,7 +1058,14 @@ func runParallelPromotionFixture(t *testing.T, promote []string) *Result {
 
 func runParallelConflictFixture(t *testing.T, promote []string) runtime.Outcome {
 	t.Helper()
-	res := runParallelPromotionFixture(t, promote)
+	repo := initTestRepo(t)
+	logsRoot := t.TempDir()
+	cfg := newInputMaterializationRunConfigForTest(t, repo)
+	cfg.Inputs.Materialize.FanIn.PromoteRunScoped = append([]string{}, promote...)
+	res, err := RunWithConfig(context.Background(), fanInConflictDOT, cfg, RunOptions{RunID: "lineage-promotion-conflict", LogsRoot: logsRoot, DisableCXDB: true})
+	if err != nil {
+		t.Fatalf("RunWithConfig: %v", err)
+	}
 	b, err := os.ReadFile(filepath.Join(res.LogsRoot, "join", "status.json"))
 	if err != nil {
 		t.Fatalf("read join status: %v", err)
@@ -1061,7 +1105,7 @@ func mustParallelResultByStartNode(t *testing.T, results []parallelBranchResult,
 
 ```go
 func TestInputMaterialization_Lineage_BranchIsolationBeforeFanIn(t *testing.T) {
-	// branch A writes .ai/runs/<run_id>/postmortem_latest.md
+	// branch A writes .ai/runs/<run_id>/branch_a_only.md
 	// branch B must not see it before fan-in promotion merge
 	repo := initTestRepo(t)
 	logsRoot := t.TempDir()
@@ -1224,7 +1268,7 @@ func (e *Engine) materializeBranchStartupInputs(ctx context.Context, parentWorkt
 		return err
 	}
 	e.activeBranchRevision = branchRev
-	if err := hydrateRunScopedRevision(e.WorktreeDir, e.Options.RunID, inputRevisionRoot(parentLogsRoot, branchRev)); err != nil {
+	if err := hydrateRunScopedRevision(e.WorktreeDir, e.Options.RunID, revisionHydrationRoot(parentLogsRoot, e.inputLineage, branchRev)); err != nil {
 		return err
 	}
 	manifest, err := e.materializeInputsWithPolicy(ctx, inputMaterializationBranchScope, "", []string{parentWorktree, inputSnapshotFilesRoot(parentLogsRoot)}, e.WorktreeDir, "", inputRunManifestPath(e.LogsRoot), true)
@@ -1633,6 +1677,7 @@ git commit -m "engine/runtime: move status and dossier fallbacks to run-scoped .
 - Modify: `skills/create-runfile/SKILL.md`
 - Modify: `skills/create-runfile/reference_run_template.yaml`
 - Modify: `demo/substack-pipeline-v01.dot`
+- Modify: `demo/substack-run-v01.yaml`
 - Modify: `docs/strongdm/dot specs/semport.dot`
 - Modify: `docs/strongdm/attractor/attractor-spec.md`
 - Modify: `docs/strongdm/attractor/README.md`
@@ -1694,7 +1739,7 @@ Expected: PASS with updated guardrails and docs/template references.
 - [ ] **Step 5: Commit skills/docs/template migrations**
 
 ```bash
-git add skills/create-dotfile/SKILL.md skills/create-dotfile/reference_template.dot skills/build-dod/SKILL.md skills/create-runfile/SKILL.md skills/create-runfile/reference_run_template.yaml demo/substack-pipeline-v01.dot "docs/strongdm/dot specs/semport.dot" docs/strongdm/attractor/attractor-spec.md docs/strongdm/attractor/README.md internal/attractor/validate/reference_template_guardrail_test.go
+git add skills/create-dotfile/SKILL.md skills/create-dotfile/reference_template.dot skills/build-dod/SKILL.md skills/create-runfile/SKILL.md skills/create-runfile/reference_run_template.yaml demo/substack-pipeline-v01.dot demo/substack-run-v01.yaml "docs/strongdm/dot specs/semport.dot" docs/strongdm/attractor/attractor-spec.md docs/strongdm/attractor/README.md internal/attractor/validate/reference_template_guardrail_test.go
 git commit -m "skills/docs: migrate run scratch guidance to .ai/runs/<run_id>"
 ```
 
@@ -1726,7 +1771,8 @@ Expected: all demo graph validations succeed.
 - [ ] **Step 5: Commit final verification adjustments**
 
 ```bash
-git add -A
+# stage only the files touched while fixing Task 8 verification findings
+git add <explicit-file-list>
 git commit -m "engine/input: finalize run-scoped imports and lineage migration"
 ```
 

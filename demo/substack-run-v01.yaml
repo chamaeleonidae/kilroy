@@ -51,9 +51,11 @@ setup:
 inputs:
   materialize:
     enabled: true
-    include: []
-    default_include:
-      - .ai/*.md
+    imports:
+      - pattern: "demo/**/*.md"
+        required: false
+    fan_in:
+      promote_run_scoped: []
     follow_references: true
     infer_with_llm: false
 
