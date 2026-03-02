@@ -59,6 +59,18 @@ Adopt this boundary:
 4. branch/resume hydration uses persisted snapshot state, not mutable developer
    workspace state
 
+## Fan-In / Metaspec Compatibility
+
+This proposal changes run-scoped workspace-state handling, not core git fan-in
+winner semantics.
+
+1. existing fan-in winner selection and ff-only branch promotion remain
+   authoritative for code state
+2. snapshot lineage merge rules in this proposal apply only to run-scoped
+   workspace state under `./.ai/runs/<run_id>/...`
+3. no snapshot rule in this proposal may introduce non-ff git merge behavior or
+   alter winner selection policy
+
 ## Branch-Safe Snapshot Lineage
 
 The previous draft used a single latest-revision model. That is not safe for
@@ -134,6 +146,34 @@ inputs:
 4. existing configs that use only `include/default_include` continue to work
    unchanged
 
+## Defaults and Template Migration
+
+To make "implicit root `.ai` ingestion is disabled by default" real in runtime
+behavior:
+
+1. engine default for `inputs.materialize.default_include` changes from
+   `.ai/*.md` to empty
+2. `skills/create-runfile/reference_run_template.yaml` must no longer seed
+   root `.ai/*.md` by default
+3. config/default tests must be updated to assert the new no-implicit-import
+   baseline
+4. existing run configs that explicitly set `include/default_include` keep their
+   behavior unchanged
+
+## Run-Scoped Hydration Rules for Dynamic Paths
+
+`./.ai/runs/<run_id>/...` contains dynamic run-id segments, so static import
+lists are not sufficient as the primary durability mechanism.
+
+1. `imports` / `include` / `default_include` select source-of-truth inputs
+   (for example docs/spec files), not run-scoped scratch lineage state
+2. run-scoped files are restored from persisted lineage state, not from static
+   glob expansion over mutable workspace files
+3. branch and resume hydration must reconstruct run-scoped state from persisted
+   run/branch heads even when source workspace `.ai` content is absent
+4. reference discovery/inference must not implicitly re-import stale
+   source-workspace run-scratch files as seed inputs
+
 ## Migration for Existing Hardcoded `.ai` Runtime Paths
 
 The proposal now includes concrete migration for known root `.ai` assumptions.
@@ -151,6 +191,40 @@ The proposal now includes concrete migration for known root `.ai` assumptions.
 3. `cmd/kilroy/attractor_status_follow.go`
    - update displayed source labels to new run-scoped paths
    - keep legacy-path display fallback during migration
+4. `internal/attractor/engine/failure_dossier.go`
+   - write/read run-scoped path first:
+     `worktree/.ai/runs/<run_id>/failure_dossier.json`
+   - legacy fallback/read compatibility for `worktree/.ai/failure_dossier.json`
+     during migration window
+5. status-contract metadata surfaces
+   - keep contract env keys stable, but update fallback path values and prompt
+     preamble examples to run-scoped-first
+   - update invocation metadata (`status_fallback_path`) to reflect the new
+     path order
+6. status/snapshot test + fixture surfaces
+   - patch tests/fixtures that assert legacy root `.ai/status.json`,
+     postmortem/review, and related fallback behavior
+
+## Skills, Templates, and Reference Graph Impacts
+
+This migration is not complete if only engine internals change.
+
+1. `skills/create-dotfile/SKILL.md` and
+   `skills/create-dotfile/reference_template.dot`
+   - update producer/consumer guidance from root `.ai/*` to run-scoped
+     `./.ai/runs/$KILROY_RUN_ID/...` where content is run scratch state
+   - preserve compatibility guidance where dual-read is intentionally supported
+2. `skills/build-dod/SKILL.md`
+   - update evidence path contract to run-scoped locations (or explicitly define
+     compatibility behavior) so generated DoDs do not reintroduce root-path
+     coupling
+3. `skills/create-runfile/reference_run_template.yaml`
+   - remove implicit root `.ai` default include behavior
+   - illustrate explicit imports for source-of-truth inputs
+4. canonical docs/demos/reference DOTs (for example in `demo/` and
+   `docs/strongdm/dot specs/`)
+   - replace root `.ai/*` path assumptions where they model run scratch outputs
+   - keep any intentional legacy examples clearly labeled as compatibility-only
 
 ## Compatibility Window
 
@@ -164,16 +238,28 @@ The proposal now includes concrete migration for known root `.ai` assumptions.
 1. config + validation
    - add `imports` schema to `InputMaterializationConfig`
    - implement normalize/validate mapping and conflict rules
-2. lineage-aware snapshot manager
+2. defaults + template migration
+   - change implicit materialization defaults to no root `.ai` import
+   - update runfile reference template and config-default tests
+3. lineage-aware snapshot manager
    - add run/branch revision lineage metadata and deterministic merge
    - emit deterministic conflict failures
-3. hydration integration
+4. hydration integration
    - hydrate run/branch/resume from lineage pointers
-4. runtime path migration
-   - patch the three cited files to run-scoped-first dual-read
-5. docs and examples
-   - update templates to write scratch/output under `./.ai/runs/<run_id>/...`
-   - keep examples explicit about `inputs.materialize.enabled` semantics
+   - implement explicit dynamic-path rules for run-scoped state
+5. runtime path migration
+   - patch status/snapshot/status-follow + failure-dossier and related contract
+     surfaces to run-scoped-first dual-read
+6. tests + fixtures
+   - patch integration/unit fixtures that assert legacy root `.ai` defaults and
+     fallback paths
+7. skills/templates/docs/demos
+   - update skills and reference template dotfile to avoid hardcoded root `.ai`
+     scratch paths
+   - update canonical examples/reference DOTs accordingly
+8. metaspec alignment pass
+   - document and assert that fan-in winner ff-only semantics remain unchanged
+     while snapshot lineage handles run-scoped workspace state
 
 ## Test Plan
 
@@ -189,10 +275,24 @@ The proposal now includes concrete migration for known root `.ai` assumptions.
 5. imports schema:
    - mapping to `include/default_include` is correct
    - `imports + include/default_include` emits `input_imports_conflict`
-6. path migration:
+6. defaults migration:
+   - no implicit root `.ai` import when config omits include/default_include
+   - explicit include/default_include configs preserve prior behavior
+7. dynamic run-scoped hydration:
+   - run-scoped lineage state is restored on branch/resume without relying on
+     static import patterns
+8. path migration:
    - status fallback and status-follow prefer run-scoped `.ai/runs/<run_id>`
+   - postmortem/review loading prefers run-scoped `.ai/runs/<run_id>`
+   - failure dossier path prefers run-scoped `.ai/runs/<run_id>`
    - legacy root `.ai` fallback still works during compatibility window
-7. unchanged C.1 behavior:
+9. skills/template/example drift:
+   - reference template and generated guidance do not hardcode legacy root `.ai`
+     scratch paths
+10. metaspec compatibility:
+   - fan-in winner selection + ff-only merge behavior unchanged
+   - snapshot lineage merge applies only to run-scoped workspace-state artifacts
+11. unchanged C.1 behavior:
    - `input_include_missing`, default-include best effort, closure, and inferer
      fallback behavior remain intact
 
@@ -200,12 +300,20 @@ The proposal now includes concrete migration for known root `.ai` assumptions.
 
 1. Does the proposal avoid cross-branch leakage by defining branch lineage and
    fan-in merge rules?
-2. Does it include concrete migration for the three cited hardcoded `.ai` path
-   locations?
-3. Does it scope manifest/env contracts to
+2. Does it reconcile lineage merge behavior with existing metaspec fan-in winner
+   ff-only semantics (code state unchanged)?
+3. Does it include concrete migration for all known hardcoded `.ai` runtime
+   paths (status, postmortem/review, failure dossier, contract metadata/tests)?
+4. Does it remove implicit root `.ai` ingestion defaults from runtime/template
+   behavior?
+5. Does it define how dynamic run-scoped paths are hydrated without depending on
+   static include globs?
+6. Does it scope manifest/env contracts to
    `inputs.materialize.enabled=true`?
-4. Does it define a concrete `imports` schema and validator behavior?
-5. Does it preserve canonical `logs_root` artifacts and Appendix C.1 semantics?
+7. Does it define a concrete `imports` schema and validator behavior?
+8. Does it include required updates for skills, reference template dotfile, and
+   canonical demo/reference DOTs?
+9. Does it preserve canonical `logs_root` artifacts and Appendix C.1 semantics?
 
 ## Incident-Specific Cleanup
 
