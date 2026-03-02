@@ -82,6 +82,7 @@ digraph SubstackCreatorUI {
 
     dashboard [label="Dashboard", fillcolor="#ECFDF5", color="#059669"];
     posts_drafts [label="Past Posts + Drafts", fillcolor="#F0FDF4"];
+    post_viewer [label="Post Viewer", fillcolor="#F0FDF4"];
   }
 
   subgraph cluster_trending {
@@ -113,7 +114,7 @@ digraph SubstackCreatorUI {
     style="rounded";
 
     demo_picker [label="Demo Session Picker", fillcolor="#FDF2F8", color="#BE185D"];
-    demo_replay [label="Replay Session", fillcolor="#FDF2F8"];
+    demo_replay [label="Replay Session\n(internally replays setup + post flow)", fillcolor="#FDF2F8"];
     demo_error [label="Cache-miss Error", fillcolor="#FFF1F2", color="#E11D48"];
   }
 
@@ -151,16 +152,24 @@ digraph SubstackCreatorUI {
   dashboard -> posts_drafts [label="History"];
   dashboard -> demo_picker [label="Demo Mode"];
 
+  posts_drafts -> post_viewer [label="View post"];
+  posts_drafts -> topic [label="Resume draft"];
+  post_viewer -> dashboard [label="Back", style=dashed];
+
   trending_topics -> trend_fetch;
   trend_fetch -> trend_map;
   trend_map -> trending_prompts;
   trending_prompts -> topic [label="Prefill topic"];
+  trending_topics -> dashboard [label="Back", style=dashed];
 
   topic -> research -> outline -> write_cycles -> complete -> dashboard;
+  research -> research [label="Highlight / Delete sources"];
+  outline -> research [label="Back", style=dashed];
 
   demo_picker -> demo_replay;
   demo_replay -> dashboard [label="Replay complete"];
   demo_replay -> demo_error [label="Cache miss"];
+  demo_error -> demo_picker [label="Dismiss", style=dashed];
 
   {rank=same; dashboard; topic; trending_topics; demo_picker;}
 }

@@ -71,7 +71,7 @@ The Settings page also contains a less visually obvious **"Reset everything"** o
 - Prominent **"New Post"** button.
 - Prominent **"Trending Topics"** button.
 - Dashboard option to open the setup Settings page.
-- Past posts and drafts.
+- Past posts and drafts, with support to view prior posts and resume drafts.
 
 ---
 
