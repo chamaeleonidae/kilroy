@@ -35,6 +35,31 @@ All LLM replies use **structured output mode** (JSON replies enforced to follow 
 
 This test matrix is critical because the agentic development system needs a tight iterative loop for QA.
 
+#### Browser Verification Contract
+
+- Integration browser tests must run with canned data and no external network dependency.
+- Smoke browser tests must run only after integration tests pass and use live Gemini 2.5 Flash Lite in place of production models.
+- Manual browser tests may use the full production model mix (Gemini 3.1 Flash + Gemini 3.1 Pro).
+- Browser verification is evidence-based, not exit-code-only. Every browser scenario must emit:
+  - a manifest entry in `.ai/test-evidence/latest/manifest.json`
+  - required UI artifacts (screenshots and relevant trace/log evidence)
+  - a console/unhandled-error summary for the scenario
+- On failure, browser tests must still write best-effort evidence artifacts plus a failing manifest entry.
+
+#### Testability Requirements
+
+- Critical UI actions/states must expose stable `data-testid` selectors to keep tests resilient to cosmetic copy/styling changes.
+- Browser test runs must be deterministic where practical: fixed viewport profile, fixed timezone/locale, and seeded/canned fixtures for integration mode.
+- Test harness must capture browser console errors, uncaught exceptions, and failed network requests as artifacts.
+- Tests must be able to reset to first-run state by clearing IndexedDB between scenarios.
+
+#### v01 E2E Critical Paths
+
+1. First-run setup routing and completion flow (Settings -> Dashboard).
+2. Full New Post flow (Topic -> Research -> Outline -> Write/Edit/Guardrails -> Complete) with citation lineage persistence.
+3. Demo replay flow (bundled P&G session), including cache-miss error behavior.
+4. Reset Everything flow, with complete IndexedDB wipe verification.
+
 ---
 
 ### Demo Mode and Production Mode
