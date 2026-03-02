@@ -4,7 +4,7 @@
 
 **Goal:** Make Kilroy robust for browser testing across existing project-specific `dot` + `run.yaml` pipelines by improving engine behavior, validation guardrails, and skill guidance.
 
-**Architecture:** Extend the existing `tool` node path (shape `parallelogram`) rather than introducing new pipeline formats. Add browser-test-aware artifact harvesting and failure classification in the engine, add validator rules that prevent brittle browser `tool_command` patterns, and update authoring skills/templates so generated project pipelines default to resilient browser test contracts.
+**Architecture:** Extend the existing `tool` node path (shape `parallelogram`) rather than introducing new pipeline formats. Add browser-test-aware artifact harvesting in the engine with browser-node gating, attempt scoping, and size caps; plumb stderr-derived failure reasons so restart classification can act on real browser failure text; extend existing validator contracts without duplicate diagnostics; and update authoring skills/templates so generated project pipelines default to resilient browser test contracts.
 
 **Tech Stack:** Go (`internal/attractor/engine`, `internal/attractor/validate`), Markdown skill docs/templates (`skills/create-dotfile`, `skills/create-runfile`), existing Kilroy CLI/test harness (`go test`, `kilroy attractor validate`).
 
@@ -18,21 +18,25 @@ This is one subsystem: **browser-testing reliability and ergonomics for existing
 
 ### Engine Runtime
 - Modify: `internal/attractor/engine/handlers.go`
-  - Responsibility: integrate browser artifact harvesting into `ToolHandler` execution lifecycle.
+  - Responsibility: integrate browser artifact harvesting into `ToolHandler` execution lifecycle with browser-node gating and stderr-derived failure reason plumbing.
 - Modify: `internal/attractor/engine/loop_restart_policy.go`
-  - Responsibility: improve deterministic vs transient classification hints for browser-test failures.
+  - Responsibility: improve deterministic vs transient classification hints for browser-test failures, avoiding ambiguous false-positive patterns.
 - Create: `internal/attractor/engine/browser_test_artifacts.go`
-  - Responsibility: detect and collect common browser test artifacts (Playwright/Cypress/Selenium outputs) from worktree into stage logs.
+  - Responsibility: detect and collect common browser test artifacts (Playwright/Cypress/Selenium outputs) from worktree into stage logs with attempt-scoped filtering and artifact-size guardrails.
 - Create: `internal/attractor/engine/browser_test_artifacts_test.go`
-  - Responsibility: unit tests for artifact discovery/copy behavior.
+  - Responsibility: unit tests for artifact discovery/copy behavior, cache exclusion, and size/scope guardrails.
 - Create: `internal/attractor/engine/browser_tool_handler_test.go`
-  - Responsibility: integration-level tests for `ToolHandler` browser failure classification and artifact capture.
+  - Responsibility: integration-level tests for `ToolHandler` browser artifact capture and failure reason extraction.
+- Modify: `internal/attractor/engine/retry_classification_integration_test.go`
+  - Responsibility: end-to-end tests that prove tool-node stderr-derived browser failures influence loop-restart routing.
+- Modify: `internal/attractor/engine/failure_classification_regression_test.go`
+  - Responsibility: add browser-infra transient signature coverage that actually fails pre-change.
 
 ### Graph Validation
 - Modify: `internal/attractor/validate/validate.go`
-  - Responsibility: lint rules for browser-testing `tool_command` robustness and failure contract signaling.
+  - Responsibility: extend existing validate-script failure-contract lint and add non-duplicative browser inline-command guidance.
 - Modify: `internal/attractor/validate/validate_test.go`
-  - Responsibility: regression coverage for new lint rules and non-browser false-positive prevention.
+  - Responsibility: regression coverage for lint deduplication, browser guidance, and non-browser false-positive prevention.
 
 ### Skill/Template Ergonomics
 - Modify: `skills/create-dotfile/SKILL.md`
@@ -56,7 +60,7 @@ This is one subsystem: **browser-testing reliability and ergonomics for existing
 
 **Files:**
 - Create: `internal/attractor/engine/browser_test_artifacts.go`
-- Test: `internal/attractor/engine/browser_test_artifacts_test.go`
+- Create: `internal/attractor/engine/browser_test_artifacts_test.go`
 
 - [ ] **Step 1: Write failing utility tests for artifact discovery and copy behavior**
 
@@ -74,6 +78,19 @@ func TestCollectBrowserArtifacts_CopiesIntoStageBrowserArtifactsDir(t *testing.T
 func TestCollectBrowserArtifacts_NoMatches_NoError(t *testing.T) {
     // Empty worktree should return empty set and nil error.
 }
+
+func TestDiscoverBrowserArtifacts_ExcludesPlaywrightCache(t *testing.T) {
+    // Ensure playwright/.cache is ignored to prevent archive bloat.
+}
+
+func TestCollectBrowserArtifacts_OnlyCollectsNewOrModifiedVsPreRunSnapshot(t *testing.T) {
+    // Old artifacts remain excluded unless modified during the current attempt.
+    // Use pre-run snapshot + stage start time to enforce attempt boundaries.
+}
+
+func TestCollectBrowserArtifacts_RespectsPerFileAndTotalSizeCaps(t *testing.T) {
+    // Oversized files are skipped with summary notes; collector remains non-fatal.
+}
 ```
 
 - [ ] **Step 2: Run the targeted test file to confirm failures**
@@ -85,11 +102,16 @@ Expected: FAIL (missing discovery/collector implementation)
 
 ```go
 // discoverBrowserArtifacts(worktreeDir string) []browserArtifact
-// collectBrowserArtifacts(stageDir, worktreeDir string) ([]string, error)
+// snapshotBrowserArtifacts(worktreeDir string) (map[string]artifactFingerprint, error)
+// collectBrowserArtifacts(stageDir, worktreeDir string, baseline map[string]artifactFingerprint, startedAt time.Time) (browserArtifactSummary, error)
 // - Match known directories/files:
-//   playwright-report, test-results, playwright/.cache traces,
-//   cypress/videos, cypress/screenshots, junit*.xml, *.trace.zip
+//   playwright-report, test-results, cypress/videos,
+//   cypress/screenshots, junit*.xml, *.trace.zip
 // - Copy into stageDir/browser_artifacts/<relative_path>
+// - Exclude heavyweight caches (playwright/.cache and other install/cache paths).
+// - Collect only files created/modified during the current stage attempt
+//   (based on pre-run snapshot + startedAt boundary).
+// - Enforce deterministic size guardrails (per-file + total bytes) and report skips.
 // - Preserve deterministic sorted results.
 ```
 
@@ -109,54 +131,63 @@ git commit -m "engine/browser: add browser artifact discovery and collection uti
 
 **Files:**
 - Modify: `internal/attractor/engine/handlers.go`
-- Test: `internal/attractor/engine/browser_tool_handler_test.go`
+- Create: `internal/attractor/engine/browser_tool_handler_test.go`
+- Modify: `internal/attractor/engine/retry_classification_integration_test.go`
 
-- [ ] **Step 1: Write failing ToolHandler integration tests for artifact capture on success and failure**
+- [ ] **Step 1: Write failing ToolHandler integration tests for artifact capture and failure reason plumbing**
 
 ```go
 func TestToolHandler_CollectsBrowserArtifacts_OnSuccess(t *testing.T) {}
 func TestToolHandler_CollectsBrowserArtifacts_OnFailure(t *testing.T) {}
 func TestToolHandler_BrowserArtifactCollectionFailure_IsNonFatal(t *testing.T) {}
 func TestToolHandler_BrowserArtifactSummary_EmitsProgressEvent(t *testing.T) {}
+func TestToolHandler_FailureReasonUsesStderrExcerpt_WhenCommandFails(t *testing.T) {}
+func TestLoopRestart_UsesToolFailureReason_ForBrowserTransientRouting(t *testing.T) {}
 ```
 
 - [ ] **Step 2: Run failing ToolHandler tests**
 
-Run: `go test ./internal/attractor/engine -run 'TestToolHandler_CollectsBrowserArtifacts|TestToolHandler_BrowserArtifactCollectionFailure_IsNonFatal|TestToolHandler_BrowserArtifactSummary_EmitsProgressEvent' -v`
-Expected: FAIL (artifacts not copied yet)
+Run: `go test ./internal/attractor/engine -run 'TestToolHandler_CollectsBrowserArtifacts|TestToolHandler_BrowserArtifactCollectionFailure_IsNonFatal|TestToolHandler_BrowserArtifactSummary_EmitsProgressEvent|TestToolHandler_FailureReasonUsesStderrExcerpt|TestLoopRestart_UsesToolFailureReason_ForBrowserTransientRouting' -v`
+Expected: FAIL (collector not integrated and failure-reason plumbing missing)
 
 - [ ] **Step 3: Call collector from ToolHandler after command completion paths**
 
 ```go
 // In ToolHandler.Execute:
-// - after stdout/stderr/timing capture, invoke collectBrowserArtifacts(stageDir, worktreeDir)
+// - gate collection to browser-relevant tool nodes only:
+//   helper match on tool_command/node id/label + optional explicit attr collect_browser_artifacts=true
+// - capture pre-run artifact snapshot + stage start time before command run
+// - after stdout/stderr/timing capture, invoke collectBrowserArtifacts(stageDir, worktreeDir, baseline, startedAt)
 // - append collector summary to progress events
 // - never fail stage solely because artifact copy partially fails (warn + continue)
+// - on command failure, set FailureReason from stderr excerpt (first actionable line) when present;
+//   keep raw exit-status text in metadata/context so retry classifier sees browser failure text.
 ```
 
 - [ ] **Step 4: Re-run ToolHandler tests**
 
-Run: `go test ./internal/attractor/engine -run 'TestToolHandler_CollectsBrowserArtifacts|TestToolHandler_BrowserArtifactCollectionFailure_IsNonFatal|TestToolHandler_BrowserArtifactSummary_EmitsProgressEvent' -v`
+Run: `go test ./internal/attractor/engine -run 'TestToolHandler_CollectsBrowserArtifacts|TestToolHandler_BrowserArtifactCollectionFailure_IsNonFatal|TestToolHandler_BrowserArtifactSummary_EmitsProgressEvent|TestToolHandler_FailureReasonUsesStderrExcerpt|TestLoopRestart_UsesToolFailureReason_ForBrowserTransientRouting' -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit chunk progress**
 
 ```bash
-git add internal/attractor/engine/handlers.go internal/attractor/engine/browser_tool_handler_test.go
-git commit -m "engine/tool: capture browser test artifacts in stage logs"
+git add internal/attractor/engine/handlers.go internal/attractor/engine/browser_tool_handler_test.go internal/attractor/engine/retry_classification_integration_test.go
+git commit -m "engine/tool: gate browser artifact capture and plumb stderr failure reasons"
 ```
 
 ### Task 3: Improve Browser Failure Classification Hints
 
 **Files:**
 - Modify: `internal/attractor/engine/loop_restart_policy.go`
-- Test: `internal/attractor/engine/failure_classification_regression_test.go`
+- Modify: `internal/attractor/engine/failure_classification_regression_test.go`
 
 - [ ] **Step 1: Add failing table tests for browser infra transient signatures**
 
 ```go
 {name: "transient: playwright browser launch failed (missing deps)", failureReason: "browserType.launch: Host system is missing dependencies", want: failureClassTransientInfra}
-{name: "transient: net::ERR_CONNECTION_REFUSED", failureReason: "page.goto failed: net::ERR_CONNECTION_REFUSED", want: failureClassTransientInfra}
+{name: "transient: playwright executable missing", failureReason: "browserType.launch: Executable doesn't exist at /home/user/.cache/ms-playwright/chromium", want: failureClassTransientInfra}
+{name: "transient: playwright install hint", failureReason: "Please run the following command to download new browsers: npx playwright install", want: failureClassTransientInfra}
 ```
 
 - [ ] **Step 2: Run targeted failure classification tests**
@@ -169,8 +200,10 @@ Expected: FAIL on new browser cases
 ```go
 // Add normalized hints such as:
 // "host system is missing dependencies", "browsertype.launch",
-// "net::err_connection_refused", "dev server not ready",
-// "websocket closed", "target page, context or browser has been closed"
+// "executable doesn't exist", "please run the following command to download new browsers",
+// "dev server is not running", "net::err_name_not_resolved"
+// Do NOT add ambiguous hints like "websocket closed" or
+// "target page, context or browser has been closed" (high false-positive risk).
 ```
 
 - [ ] **Step 4: Re-run targeted tests**
@@ -187,46 +220,49 @@ git commit -m "engine/failure-class: classify browser infra failures as transien
 
 ## Chunk 2: Validator Guardrails For Browser Tool Gates
 
-### Task 4: Add Browser Tool Command Contract Lint
+### Task 4: Extend Validate-Script Contract Lint And Add Non-Duplicative Browser Inline Guidance
 
 **Files:**
 - Modify: `internal/attractor/validate/validate.go`
 - Test: `internal/attractor/validate/validate_test.go`
 
-- [ ] **Step 1: Add failing validation tests for brittle browser commands**
+- [ ] **Step 1: Add failing validation tests for browser command guidance without duplicate diagnostics**
 
 ```go
-func TestLintBrowserToolCommandContract_WarnsWithoutFailureFallback(t *testing.T) {}
-func TestLintBrowserToolCommandContract_WarnsOnInlineLongBrowserCommand(t *testing.T) {}
-func TestLintBrowserToolCommandContract_NoWarningForScriptContract(t *testing.T) {}
+func TestLintValidateScriptFailureContract_BrowserScriptMissingFallback(t *testing.T) {}
+func TestLintBrowserInlineToolCommandContract_WarnsOnInlineBrowserCommand(t *testing.T) {}
+func TestLintBrowserInlineToolCommandContract_DoesNotDuplicateValidateScriptWarning(t *testing.T) {}
+func TestLintBrowserInlineToolCommandContract_NoWarningForScriptContract(t *testing.T) {}
 ```
 
 - [ ] **Step 2: Run targeted validator tests to confirm failure**
 
-Run: `go test ./internal/attractor/validate -run 'TestLintBrowserToolCommandContract' -v`
-Expected: FAIL (new rule missing)
+Run: `go test ./internal/attractor/validate -run 'TestLintValidateScriptFailureContract|TestLintBrowserInlineToolCommandContract' -v`
+Expected: FAIL (new coverage/rules missing)
 
 - [ ] **Step 3: Implement lint rule and wire into validator pipeline**
 
 ```go
-// lintBrowserToolCommandContract(g *model.Graph) []Diagnostic
-// Rule intent:
+// Extend lintValidateScriptFailureContract(g *model.Graph) []Diagnostic:
+// - keep single source of truth for validate-*.sh + KILROY_VALIDATE_FAILURE contract.
+// Add lintBrowserInlineToolCommandContract(g *model.Graph) []Diagnostic:
 // - For tool_command containing playwright|cypress|selenium|webdriver,
-//   prefer script wrapper: sh scripts/validate-<stage>.sh (browser stage allowed)
-// - Require KILROY_VALIDATE_FAILURE fallback token for script invocation.
+//   prefer script wrapper: sh scripts/validate-<stage>.sh
+// - Skip this lint when command already matches sh scripts/validate-*.sh
+//   so one node never emits duplicate warnings for the same issue.
 // - Emit warning-level diagnostics with explicit fix text.
 ```
 
 - [ ] **Step 4: Re-run targeted validator tests**
 
-Run: `go test ./internal/attractor/validate -run 'TestLintBrowserToolCommandContract' -v`
+Run: `go test ./internal/attractor/validate -run 'TestLintValidateScriptFailureContract|TestLintBrowserInlineToolCommandContract' -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit chunk progress**
 
 ```bash
 git add internal/attractor/validate/validate.go internal/attractor/validate/validate_test.go
-git commit -m "validate: add browser tool command contract lint"
+git commit -m "validate: extend script contract lint and add browser inline guidance"
 ```
 
 ### Task 5: Add Regression Coverage For Loop-Restart Guard On Browser Verify Nodes
@@ -283,12 +319,13 @@ Expected: PASS currently (baseline capture before edits)
 - When DoD requires browser behavior, include a dedicated browser verify tool gate.
 - Use script contract: `sh scripts/validate-<stage>.sh || { echo "KILROY_VALIDATE_FAILURE: ..."; exit 1; }` (for browser stages, `validate-browser.sh` is acceptable).
 - Route transient infra separately from deterministic UI/product failures.
+- If wrapper script does not mention browser tooling directly, set `collect_browser_artifacts=true` on the tool node.
 ```
 
 - [ ] **Step 3: Add optional browser verify scaffold to `reference_template.dot` comments**
 
 ```dot
-// verify_browser [shape=parallelogram, tool_command="sh scripts/validate-browser.sh || { echo 'KILROY_VALIDATE_FAILURE: browser validation script missing or failed'; exit 1; }"]
+// verify_browser [shape=parallelogram, collect_browser_artifacts="true", tool_command="sh scripts/validate-browser.sh || { echo 'KILROY_VALIDATE_FAILURE: browser validation script missing or failed'; exit 1; }"]
 // check_browser [shape=diamond, label="Browser OK?"]
 ```
 
@@ -349,20 +386,20 @@ git commit -m "skills/create-runfile: document browser dependency setup defaults
 ```md
 - Use tool nodes for browser tests.
 - Preferred script contract and failure routing pattern.
-- Browser artifacts captured under stage logs.
+- Browser artifacts captured under stage logs (attempt-scoped, cache-excluded, size-capped).
 ```
 
 - [ ] **Step 2: Add runbook note in attractor README for browser artifact harvesting + lint expectations**
 
 ```md
-- Enumerate auto-captured browser artifacts.
+- Enumerate auto-captured browser artifacts and explicit cache exclusions.
 - Clarify transient vs deterministic classification intent.
 ```
 
 - [ ] **Step 3: Verify documentation includes required browser contract language**
 
-Run: `rg -n \"validate-<stage>|validate-browser|browser artifacts|transient\" README.md docs/strongdm/attractor/README.md`
-Expected: matches in both files covering contract + artifacts + failure classification guidance
+Run: `rg -n \"validate-<stage>|validate-browser|browser artifacts|attempt-scoped|size cap|transient\" README.md docs/strongdm/attractor/README.md`
+Expected: matches in both files covering contract + artifact constraints + failure classification guidance
 
 - [ ] **Step 4: Commit docs updates**
 
@@ -386,20 +423,20 @@ git commit -m "docs: add browser testing runtime and artifact guidance"
 # include targeted go test invocations for:
 # - browser artifact collector
 # - browser ToolHandler integration
-# - browser validator contract lint
+# - browser validator lint coverage
 ```
 
-Run: `rg -n \"DiscoverBrowserArtifacts|CollectsBrowserArtifacts|LintBrowserToolCommandContract\" scripts/e2e-guardrail-matrix.sh`
-Expected: all three command families are present
+Run: `rg -n \"DiscoverBrowserArtifacts|CollectsBrowserArtifacts|FailureReasonUsesStderrExcerpt|LoopRestart_UsesToolFailureReason|LintBrowserInlineToolCommandContract|LintValidateScriptFailureContract\" scripts/e2e-guardrail-matrix.sh`
+Expected: engine + validator browser-hardening command families are present
 
 - [ ] **Step 2: Run engine-focused tests**
 
-Run: `go test ./internal/attractor/engine -run 'TestDiscoverBrowserArtifacts|TestToolHandler_CollectsBrowserArtifacts|TestClassifyFailureClass_AllHeuristicPatterns' -v`
+Run: `go test ./internal/attractor/engine -run 'TestDiscoverBrowserArtifacts|TestToolHandler_CollectsBrowserArtifacts|TestToolHandler_FailureReasonUsesStderrExcerpt|TestLoopRestart_UsesToolFailureReason_ForBrowserTransientRouting|TestClassifyFailureClass_AllHeuristicPatterns' -v`
 Expected: PASS
 
 - [ ] **Step 3: Run validate-focused tests**
 
-Run: `go test ./internal/attractor/validate -run 'TestLintBrowserToolCommandContract|TestLintLoopRestartFailureClassGuard_BrowserVerifyRequiresDeterministicFallback' -v`
+Run: `go test ./internal/attractor/validate -run 'TestLintValidateScriptFailureContract|TestLintBrowserInlineToolCommandContract|TestLintLoopRestartFailureClassGuard_BrowserVerifyRequiresDeterministicFallback' -v`
 Expected: PASS
 
 - [ ] **Step 4: Run CI-parity checklist commands**
