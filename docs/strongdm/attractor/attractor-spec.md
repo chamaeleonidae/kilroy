@@ -2238,6 +2238,7 @@ When `auto_status=true` on a node and no `status.json` was written by the handle
 - `inputs.materialize.default_include` is **best-effort**. Unmatched default include patterns must not fail the run.
 - Run startup must persist a canonical input snapshot under `logs_root/input_snapshot/` and a run-level manifest at `logs_root/inputs_manifest.json`.
 - **Run and branch worktree hydration** must preserve input closure availability. Parallel branch worktrees must be hydrated before branch stage execution and persist branch-local manifests at `<branch_logs_root>/inputs_manifest.json`.
+- Scratch artifacts referenced by prompts/examples must be run-scoped under `.ai/runs/$KILROY_RUN_ID/...`. Root `.ai` is not implicitly ingested into run or branch worktrees.
 - Stage attempts must write stage-local input manifests at `logs_root/<node_id>/inputs_manifest.json` and expose `KILROY_INPUTS_MANIFEST_PATH` to stage runtimes.
 - Resume must provide hydration parity with fresh runs: after worktree recreation, required inputs are restored from persisted snapshot/manifest state (not mutable source workspace state).
 - LLM-assisted implicit reference inference (`inputs.materialize.infer_with_llm=true`) is additive. Inferer failures are non-fatal and must deterministically fall back to scanner-only closure with warnings.

@@ -86,6 +86,7 @@ Default run-config source:
 - Confirm every DOT provider has a run-config backend entry.
 - Confirm mode consistency (`real` vs `test_shim`) with intended command flags.
 - Confirm config has no unresolved placeholder paths.
+- If graph prompts consume scratch artifacts, require run-scoped paths (`.ai/runs/$KILROY_RUN_ID/...`); root `.ai` is not implicitly ingested.
 
 ## Non-Negotiable Guardrails
 

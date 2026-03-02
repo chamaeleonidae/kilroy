@@ -22,6 +22,8 @@ Tests aren't there to be passed. They're there to prove results. Verify the deli
 7. Map each AC and each message to the scenario(s) that prove it
 8. Crosscheck — confirm every AC and every message is covered and every scenario is sound
 
+When this skill is used inside an Attractor run, scratch outputs should be written under `.ai/runs/$KILROY_RUN_ID/...`. Root `.ai` is not implicitly ingested.
+
 ## If a digraph is provided
 
 Use the graph in two passes:

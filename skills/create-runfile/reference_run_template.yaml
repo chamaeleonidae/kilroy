@@ -43,6 +43,10 @@ git:
 inputs:
   materialize:
     enabled: true
+    # Scratch imports are explicit. Root .ai is not implicitly ingested.
+    # Add run-scoped scratch patterns when pipeline prompts consume them:
+    # - pattern: ".ai/runs/$KILROY_RUN_ID/**/*.md"
+    #   required: false
     imports:
       - pattern: "docs/**/*.md"
         required: false

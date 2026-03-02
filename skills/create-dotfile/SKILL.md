@@ -65,7 +65,7 @@ to: `claude-sonnet-4.6` (anthropic), `gemini-3-flash-preview` (google),
 ### Implementation Decomposition
 
 - If the task involves implementing or porting a codebase estimated to exceed ~1,000 lines of new code, decompose the `implement` node into per-module fan-out nodes (e.g. `implement_core`, `implement_api`, `implement_data_layer`) with a `merge_implementation` synthesis node. Each module node targets a bounded deliverable (~200–500 lines). A single `implement` node for large codebases produces stub implementations that pass structural checks but deliver no functional behavior.
-- Use parallel fan-out (multiple `implement_X` → `merge_implementation`) or sequential chain as appropriate. Each `implement_X` node writes to `.ai/module_X_impl.md` and commits the code. `merge_implementation` synthesizes integration points and resolves conflicts.
+- Use parallel fan-out (multiple `implement_X` → `merge_implementation`) or sequential chain as appropriate. Each `implement_X` node writes to `.ai/runs/$KILROY_RUN_ID/module_X_impl.md` and commits the code. `merge_implementation` synthesizes integration points and resolves conflicts.
 - Threshold: >1,000 estimated lines of new code → decompose. The cost of extra nodes is much lower than a stub implementation.
 
 **Analyze-before-implement (required when porting or reading existing source):**
@@ -78,7 +78,7 @@ analyze_fanout (shape=component) → analyze_<module>×N (shape=box, auto_status
 ```
 
 Each analyze_<module> node reads specific source files and writes a compact design doc
-to `.ai/design_<module>.md` (under 300 lines — spec only, no implementation code).
+to `.ai/runs/$KILROY_RUN_ID/design_<module>.md` (under 300 lines — spec only, no implementation code).
 merge_analysis verifies all design docs exist and are cross-module consistent.
 Only after merge_analysis succeeds does the pipeline proceed to implement_* nodes.
 See `skills/create-dotfile/reference_template.dot` OPTIONAL comments for stub examples.
@@ -95,9 +95,9 @@ plan_work (shape=box, auto_status=true)
   → [loop back to work_pool if outcome=more_work, else merge_implementation]
 ```
 
-plan_work writes `.ai/work_queue.json` once (skips if already exists).
+plan_work writes `.ai/runs/$KILROY_RUN_ID/work_queue.json` once (skips if already exists).
 Each worker_N claims items where `item.id % N == N_index`, skips files already on disk.
-check_work_complete reads `.ai/work_pass.txt` (pass counter); routes:
+check_work_complete reads `.ai/runs/$KILROY_RUN_ID/work_pass.txt` (pass counter); routes:
 - `outcome=more_work` → work_pool (files remain)
 - `outcome=all_done`  → merge_implementation
 - `outcome=fail`      → postmortem (pass count > 5, stall guard)
@@ -145,7 +145,8 @@ Required properties: (1) idempotent — skip existing files; (2) modulo item ass
   Omitting the paths from auto_status node prompts causes `status_contract_in_prompt` warnings.
 - Require explicit success/fail/retry behavior. For fail/retry, `failure_reason` and `failure_class` are **required** — not optional. Missing `failure_class` defaults to `deterministic`, which is tracked by the cycle breaker. Silently omitting it makes the breaker behavior unpredictable.
 - For any node whose failure prose may vary between retries (filenames, line numbers, counts, AC lists), also set `failure_signature` to a stable short key: `"failure_signature":"compile_errors"`. This prevents the same root cause from appearing as distinct signatures and defeating the cycle breaker. See **Cycle Detection Contract** section below.
-- Keep `.ai/*` producer/consumer paths exact; no filename drift.
+- Keep `.ai/runs/$KILROY_RUN_ID/*` producer/consumer paths exact; no filename drift.
+- Scratch artifacts are run-scoped only: use `.ai/runs/$KILROY_RUN_ID/...` everywhere. Root `.ai` is not implicitly ingested.
 - **`max_tokens` (output token cap, default 32768):** Every provider adapter defaults to 32768 output
   tokens per response. This is a *per-response generation cap* — completely separate from the model's
   input context window. For nodes that write large files (full source modules, long docs), leave this
@@ -183,8 +184,8 @@ Required properties: (1) idempotent — skip existing files; (2) modulo item ass
 - The `postmortem` node **MUST** have at least three condition-keyed outbound edges covering distinct outcome classes (e.g. `impl_repair`, `needs_replan`, `needs_toolchain` or equivalents for the task domain) **before** the unconditional fallback. A `postmortem` with only one unconditional edge is invalid — it prevents recovery classification from routing differently and collapses all failure modes into a single path.
 - The unconditional fallback from `postmortem` MUST come last among its outbound edges.
 - **Postmortem progress detection (required):** The `postmortem` prompt MUST compare the current failing AC set against the previous iteration's failing AC set (stored in context key `last_failing_acs`). If the sets are identical — zero progress — the postmortem MUST route `needs_replan`, not `impl_repair`. The default `impl_repair` applies ONLY on the first occurrence of a failure. Identical repeated failures are a signal that the implementation approach is wrong, not that another repair pass will help. Add `loop_restart_persist_keys="last_failing_acs"` to the graph attrs so this key survives loop restarts.
-- **Implement pre-exit verification (required on repair passes):** The `implement` prompt MUST require that on any repair pass (when `.ai/postmortem_latest.md` or `.ai/review_consensus.md` exists), the node runs `./scripts/validate-build.sh` and re-reads each targeted file to confirm the fix is present before exiting. Silent exit (auto-success) on a repair pass without self-verification is the primary cause of no-progress cycles.
-- **Postmortem evidence usage (required):** The `postmortem` prompt MUST read `.ai/test-evidence/latest/manifest.json` when present. For each failed or suspicious `IT-*` scenario, it MUST read listed artifacts that can materially improve diagnosis and cite artifact file paths in `.ai/postmortem_latest.md`. It may skip an artifact only with an explicit reason (missing/unreadable/not produced), which becomes a finding.
+- **Implement pre-exit verification (required on repair passes):** The `implement` prompt MUST require that on any repair pass (when `.ai/runs/$KILROY_RUN_ID/postmortem_latest.md` or `.ai/runs/$KILROY_RUN_ID/review_consensus.md` exists), the node runs `./scripts/validate-build.sh` and re-reads each targeted file to confirm the fix is present before exiting. Silent exit (auto-success) on a repair pass without self-verification is the primary cause of no-progress cycles.
+- **Postmortem evidence usage (required):** The `postmortem` prompt MUST read `.ai/test-evidence/latest/manifest.json` when present. For each failed or suspicious `IT-*` scenario, it MUST read listed artifacts that can materially improve diagnosis and cite artifact file paths in `.ai/runs/$KILROY_RUN_ID/postmortem_latest.md`. It may skip an artifact only with an explicit reason (missing/unreadable/not produced), which becomes a finding.
 
 ## Cycle Detection Contract (Required)
 
@@ -215,7 +216,7 @@ Set `failure_signature` on:
 
 **The non-fail `loop_restart` hole:**
 `loop_restart=true` edges carrying a custom non-fail status (e.g. `outcome=more_work`) bypass the engine's signature cycle breaker entirely. The only protections are the LLM-side pass counter and `max_restarts` (default 50). For every non-fail `loop_restart` cycle, the prompting node MUST:
-1. Maintain a pass counter in a scratch file (e.g. `.ai/work_pass.txt`)
+1. Maintain a pass counter in a scratch file (e.g. `.ai/runs/$KILROY_RUN_ID/work_pass.txt`)
 2. Increment it on each execution
 3. Emit `status=fail, failure_class=deterministic_agent_bug` when the counter exceeds N (recommended: 5–10)
 
