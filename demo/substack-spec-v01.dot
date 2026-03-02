@@ -10,7 +10,7 @@ digraph substack_spec_v01 {
         provenance_version="1",
         model_stylesheet="
             * { llm_model: gemini-3-flash-preview; llm_provider: google; }
-            .hard { llm_model: gemini-2.5-pro; llm_provider: google; }
+            .hard { llm_model: gemini-3.1-pro-preview; llm_provider: google; }
             .verify { llm_model: gemini-2.5-flash; llm_provider: google; }
             .review { llm_model: claude-sonnet-4.5; llm_provider: anthropic; }
             .branch-a { llm_model: gemini-3-pro-preview; llm_provider: google; }

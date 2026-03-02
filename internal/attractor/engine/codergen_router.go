@@ -680,10 +680,10 @@ func pickFailoverModel(provider string, catalog *modeldb.Catalog) string {
 	case "google":
 		// Prefer a known good "pro" model when present.
 		for _, want := range []string{
-			"gemini/gemini-2.5-pro",
-			"gemini/gemini-2.5-pro-preview-06-05",
-			"gemini/gemini-2.5-pro-preview-05-06",
-			"gemini/gemini-2.5-pro-preview-03-25",
+			"gemini/gemini-3.1-pro-preview",
+			"google/gemini-3.1-pro-preview",
+			"gemini/gemini-3-pro-preview",
+			"google/gemini-3-pro-preview",
 		} {
 			if hasModelID(catalog, "google", want) {
 				return providerModelIDFromCatalogKey("google", want)

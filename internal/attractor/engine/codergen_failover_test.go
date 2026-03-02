@@ -44,7 +44,7 @@ func TestCodergenRouter_WithFailoverText_FailsOverToDifferentProvider(t *testing
 	catalog := &modeldb.Catalog{
 		Models: map[string]modeldb.ModelEntry{
 			// Include a provider-prefixed model key to validate providerModelIDFromCatalogKey stripping.
-			"gemini/gemini-2.5-pro": {Provider: "google", Mode: "chat"},
+			"gemini/gemini-3.1-pro-preview": {Provider: "google", Mode: "chat"},
 		},
 	}
 
@@ -70,7 +70,7 @@ func TestCodergenRouter_WithFailoverText_FailsOverToDifferentProvider(t *testing
 			return "", fmt.Errorf("synthetic openai failure")
 		}
 		if prov == "google" {
-			if mid != "gemini-2.5-pro" {
+			if mid != "gemini-3.1-pro-preview" {
 				return "", fmt.Errorf("unexpected fallback model: %q", mid)
 			}
 			return "ok-from-google", nil
@@ -90,8 +90,8 @@ func TestCodergenRouter_WithFailoverText_FailsOverToDifferentProvider(t *testing
 	if used.Provider != "google" {
 		t.Fatalf("used provider: got %q want %q", used.Provider, "google")
 	}
-	if used.Model != "gemini-2.5-pro" {
-		t.Fatalf("used model: got %q want %q", used.Model, "gemini-2.5-pro")
+	if used.Model != "gemini-3.1-pro-preview" {
+		t.Fatalf("used model: got %q want %q", used.Model, "gemini-3.1-pro-preview")
 	}
 }
 
@@ -103,7 +103,7 @@ func TestCodergenRouter_WithFailoverText_AppliesForceModelToFailoverProvider(t *
 	}
 	catalog := &modeldb.Catalog{
 		Models: map[string]modeldb.ModelEntry{
-			"gemini/gemini-2.5-pro": {Provider: "google", Mode: "chat"},
+			"gemini/gemini-3.1-pro-preview": {Provider: "google", Mode: "chat"},
 		},
 	}
 
