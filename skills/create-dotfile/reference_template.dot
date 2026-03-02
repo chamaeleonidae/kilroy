@@ -214,15 +214,26 @@ digraph reference_template {
         check_build [shape=diamond, label="Build OK?"]
 
         // Replace tool_command with project-specific test command.
+        // Required evidence contract:
+        //   - Run integration scenarios required by .ai/definition_of_done.md
+        //   - Write evidence under .ai/test-evidence/latest/
+        //   - Write .ai/test-evidence/latest/manifest.json mapping each IT-*
+        //     scenario to status and artifact paths/types
+        //   - Emit best-effort evidence and manifest entry even on failure
         verify_test [
             shape=parallelogram,
             tool_command="echo 'Replace with project-specific test check'; exit 0"
         ]
         check_test [shape=diamond, label="Tests OK?"]
 
-        // Replace tool_command with artifact hygiene check.
+        // Replace tool_command with artifact/evidence hygiene check.
         // Confirm deliverables meet their interface contract (exports, endpoints,
         // CLI behavior, observable outputs); file existence alone is insufficient.
+        // Also verify test evidence contract:
+        //   - .ai/test-evidence/latest/manifest.json exists and is parseable
+        //   - Manifest scenario IDs cover DoD integration scenarios
+        //   - Each scenario has required artifact types (UI/mixed => screenshot;
+        //     non-ui => text/structured evidence)
         verify_artifacts [
             shape=parallelogram,
             max_retries=0,
@@ -294,6 +305,13 @@ digraph reference_template {
         //   - Read branch review outputs via parallel_results.json +
         //     worktree_dir if available
         //   - Read .ai/implementation_log.md
+        //   - If .ai/test-evidence/latest/manifest.json exists:
+        //       * read it first
+        //       * for each failed or suspicious IT-* scenario, read listed artifacts
+        //         that can materially improve diagnosis
+        //       * cite artifact file paths used as evidence
+        //       * if an artifact is missing/unreadable/not produced, record that as
+        //         a finding with the attempted path
         //   - Output: root causes, what worked (preserve), what failed
         //     (fix), concrete next changes
         //   - Must NOT direct from-scratch restart — preserve working code
