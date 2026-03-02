@@ -14,6 +14,7 @@ Pure React frontend (no separate backend). Private repo on GitHub. Hosted on Rai
 - Both accessed client-side using the user's API key, which is entered during configuration and persisted in IndexedDB.
 
 **IndexedDB** (via the `idb` library) is used for all local persistence: configuration, drafts, cached demo sessions, and post history.
+All persisted data is retained indefinitely unless the user deletes it.
 
 No RAG — input prompts should just be capped at generous, large values.
 
@@ -38,24 +39,30 @@ This test matrix is critical because the agentic development system needs a tigh
 **In production mode**, every session (configuration + post creation) is recorded: all inputs, all LLM responses, all intermediate state. Sessions are stored in IndexedDB.
 
 **In demo mode**, you choose from all recorded sessions. When you do, the full experience replays using the production code path — text fields prefill instantly with a subtle fade-in, attachments appear a moment after the page loads, and the button that was clicked next becomes highlighted. The user clicks through each step, seeing exactly what a real session looks like.
+If a demo replay has a cache miss, demo mode shows an error and does not fall back to live API calls.
 
-The codebase ships with **one pre-recorded session of a P&G post**, so demo mode works out of the box. This includes the configuration first-run using the cached configuration. The easiest way to build a great demo library is to record several live sessions and keep the best ones.
+The codebase ships with **one session of a P&G post**, so demo mode works out of the box. This includes the configuration first-run using the cached configuration. The initial bundled session is best-effort quality and can later be swapped with a cached run. The easiest way to build a great demo library is to record several live sessions and keep the best ones.
 
 ---
 
-### First Run: Configuration
+### Setup Flow
 
-The user's API key is collected first and stored in IndexedDB.
+Setup is centered on a **Settings** page. It runs on first run and can also be opened later from a dashboard option.
+On app start, first run goes to Settings, while non-first-run goes directly to the dashboard.
 
-Then the configuration walkthrough begins. Each input step uses a **rich input control** — a reusable component that accepts any combination of typed/pasted text, uploaded documents, and links. This same component is used everywhere the user provides information to the system.
+Each setup option is parallel, not a forced series. Users can complete items in any order.
+Each setup option shows an icon when it is empty so users can see what still needs to be completed.
+v01 supports one company workspace only.
 
-1. **Identify your company** — via the rich input control.
-2. **Confirm company** — **Gemini 3.1 Pro** generates a one-paragraph summary followed by beautifully formatted detailed instructions, with a back button.
-3. **Define voice** — via the rich input control.
-4. **Confirm voice** — **Gemini 3.1 Pro** generates the voice summary.
-5. **Define guardrails** — via the rich input control.
-6. **Confirm guardrails** — **Gemini 3.1 Pro** generates the guardrails summary.
-7. **Proceed to dashboard.**
+Each input step uses a **rich input control** — a reusable component that accepts any combination of typed/pasted text, uploaded documents, and links. This same component is used everywhere the user provides information to the system.
+
+1. **API key setup** — collect the user's API key and store it in IndexedDB.
+2. **Identify your company** — via the rich input control, then **Confirm company** via **Gemini 3.1 Pro**, with a back button to return.
+3. **Define voice** — via the rich input control, then **Confirm voice** via **Gemini 3.1 Pro**, with a back button to return.
+4. **Define guardrails** — via the rich input control, then **Confirm guardrails** via **Gemini 3.1 Pro**, with a back button to return.
+5. **Proceed to dashboard** once required setup items are complete.
+
+The Settings page also contains a less visually obvious **"Reset everything"** option. It requires confirmation and deletes all local data.
 
 ---
 
@@ -63,6 +70,7 @@ Then the configuration walkthrough begins. Each input step uses a **rich input c
 
 - Prominent **"New Post"** button.
 - Prominent **"Trending Topics"** button.
+- Dashboard option to open the setup Settings page.
 - Past posts and drafts.
 
 ---
@@ -94,16 +102,18 @@ Draft an outline of the post using **Gemini 3.1 Pro**. This is **one-shot** from
 #### 4. Write
 
 A **3-cycle process** using **Gemini 3.1 Pro** that the user sees visually:
+In v01, these three cycles run strictly automatically with no manual pause/edit/rerun controls between steps.
 
 1. **Write** — attempts to one-shot the article without the guardrails, incorporating inline citations that reference the research sources.
 2. **Edit** — asks for revisions to better align with the style guide, and rewrites as needed to improve the draft holistically.
 3. **Guardrails** — the only pass that receives the guardrails document (and nothing else besides the post). Assigned to fix any guardrails issues.
 
 Each cycle is visible to the user as it progresses.
+Citation behavior is best effort for credibility: source-derived claims should be cited, while unsourced generic or opinion statements are allowed.
 
 #### 5. Complete
 
-Shows the final formatted post with proper footnotes — each citation rendered with its source title and link. Then return to the dashboard.
+Shows the final formatted post with proper footnotes — each citation rendered with its source title and link. Saves the result as Markdown and displays it in a formatted Markdown viewer. Then return to the dashboard.
 
 ### Visual Design
 
@@ -113,3 +123,7 @@ Shows the final formatted post with proper footnotes — each citation rendered 
 - Cards as containers: Content blocks, source results, confirmations, previews — all render in the same card primitive. Clean spacing, no shadows.
 - Horizontal bars as progress. No spinners, no skeletons. Accent color fill animating left-to-right.
 - Final output looks like Substack. The post preview is serif, with numbered footnotes and linked sources. If it doesn't look like a real Substack post, it's wrong.
+
+### UI Diagram (Graphviz)
+
+See [substack-spec-v01-ui.dot](./substack-spec-v01-ui.dot).
