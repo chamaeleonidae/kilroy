@@ -14,6 +14,8 @@
 - Production mode: record all sessions for later replay
 - Structured JSON output with retry/backoff for all LLM calls
 - Integration tests (canned data), smoke tests (live Flash Lite), manual test option (real models)
+- Deployment readiness artifacts for GitHub -> Railway, validated via code review
+- Explicit non-deployment policy for acceptance: no live deploy execution
 - Visual design matching Substack look and feel
 
 ### Out of Scope
@@ -22,11 +24,12 @@
 - RAG or document retrieval beyond search grounding
 - Manual pause/edit/rerun controls between Write/Edit/Guardrails cycles
 - Substack API publishing integration
+- Executing a live deployment to Railway (or any hosting platform) during DoD verification
 
 ### Assumptions
 - User has a valid Gemini API key
 - Browser supports IndexedDB
-- Railway deployment target is configured via GitHub integration
+- A reviewer can inspect deployment configuration/docs to validate deployability
 - Node.js/npm toolchain available for build and test
 
 ## Deliverables
@@ -37,7 +40,7 @@
 | Build output | `dist/` or `build/` | Production-ready static assets |
 | Bundled demo session | `src/demo/` or equivalent | Canned P&G session data (config + post) for out-of-box demo mode |
 | Test suite | `src/__tests__/` or colocated | Integration tests (canned), smoke tests (live Flash Lite) |
-| Deployment config | `railway.json` / `Procfile` or equivalent | Railway deployment from GitHub |
+| Deployment config | `railway.json` / `Procfile` or equivalent | GitHub -> Railway deployment-ready config and docs, validated by review only (not executed) |
 | `package.json` | project root | Dependencies, scripts for build, test, dev |
 
 ## Acceptance Criteria
@@ -48,7 +51,8 @@
 |----|-----------|------------|
 | AC-1.1 | `npm install && npm run build` exits 0 and produces static assets | IT-1 |
 | AC-1.2 | App loads in a browser at its served URL without console errors | IT-2, IT-3 |
-| AC-1.3 | Deployment config exists and references the build output | IT-1 |
+| AC-1.3 | Repository contains deployment-ready GitHub -> Railway config/docs that pass deployment-readiness code review and correctly reference build output | IT-1 |
+| AC-1.4 | DoD verification performs no live deployment; deployment validation is review/static-check only | IT-1 |
 
 ### 2 — Persistence (IndexedDB)
 
@@ -206,7 +210,7 @@
 
 | ID | Scenario | Steps | Verification |
 |----|----------|-------|--------------|
-| IT-1 | **Build and bundle** | 1. Run `npm install` → exits 0 2. Run `npm run build` → exits 0, `dist/` or `build/` contains `index.html` and JS assets 3. Deployment config file exists and references build output | `npm run build` exits 0; output dir contains `index.html` |
+| IT-1 | **Build and deployment-readiness review (no live deploy)** | 1. Run `npm install` → exits 0 2. Run `npm run build` → exits 0, `dist/` or `build/` contains `index.html` and JS assets 3. Verify deployment config file(s) exist (`railway.json` / `Procfile` or equivalent) and reference the built static output 4. Perform deployment-readiness code review: verify build/start wiring and required env placeholders are documented, with no missing repository configuration needed for GitHub -> Railway handoff 5. Verify this scenario and all DoD scenarios do not execute live deployment commands | `npm run build` exits 0; review checklist passes; no live deployment command executed |
 | IT-2 | **First-run routing to Settings** | 1. Clear all IndexedDB data 2. Serve app and load in browser 3. Verify app navigates to Settings page (not Dashboard) 4. Verify each setup item (API key, company, voice, guardrails) shows incomplete icon 5. Verify "Reset Everything" is present but visually subtle | Browser test exits 0 |
 | IT-3 | **Complete setup flow (all steps, any order)** | 1. Clear IndexedDB, serve app, load in browser → lands on Settings 2. Complete guardrails first: enter text via rich input (verify textarea + toolbar), submit → verify Pro confirmation displays, click back → returns to input, resubmit → confirm, returns to Settings 3. Complete API key: enter key, save → verify persisted 4. Complete voice: enter via rich input, submit → verify Pro confirmation + back button, confirm → returns to Settings 5. Complete company: enter via rich input, submit → verify Pro confirmation + back button, confirm → returns to Settings 6. Verify all status icons now show complete 7. Navigate to Dashboard → verify Dashboard loads 8. Reload page → verify app goes to Dashboard (not Settings) 9. Navigate to Settings from Dashboard → verify settings accessible 10. Verify API key, company, voice, guardrails data persisted in IndexedDB | Browser test exits 0 |
 | IT-4 | **Trending Topics end-to-end** | 1. Set up app with completed config (canned) 2. Navigate to Dashboard → verify "Trending Topics" button is prominent 3. Click Trending Topics 4. Verify Flash search-grounded research calls launch (canned responses) 5. As results return, verify headline + snippet cards appear 6. Verify deterministic trend visualization renders 7. Verify Pro synthesizes 3 writing prompts 8. Select one prompt → verify navigation to New Post with topic prefilled 9. Verify back button from Trending Topics returns to Dashboard | Browser test exits 0 |
@@ -225,7 +229,7 @@
 
 | Scenario | Exercises delivered artifact? | Automatable? | Bounded? | Proportional? | Independent? | Crosses AC groups? |
 |----------|------------------------------|-------------|----------|---------------|-------------|-------------------|
-| IT-1 | Yes — builds the app | Yes | Yes (3 steps) | Yes | Yes | 1 |
+| IT-1 | Yes — builds the app | Yes (plus review checklist) | Yes (5 steps) | Yes | Yes | 1 |
 | IT-2 | Yes — loads in browser | Yes | Yes (5 steps) | Yes | Yes | 4, 9 |
 | IT-3 | Yes — loads in browser | Yes (canned LLM) | Yes (10 steps) | Yes | Yes | 2, 3, 4, 5, 9 |
 | IT-4 | Yes — loads in browser | Yes (canned LLM) | Yes (9 steps) | Yes | Yes | 3, 5, 6 |
@@ -245,6 +249,7 @@
 | AC-1.1 | IT-1 |
 | AC-1.2 | IT-2, IT-3 |
 | AC-1.3 | IT-1 |
+| AC-1.4 | IT-1 |
 | AC-2.1 | IT-3 |
 | AC-2.2 | IT-3 |
 | AC-2.3 | IT-5 |

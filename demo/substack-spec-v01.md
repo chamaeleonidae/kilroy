@@ -6,7 +6,10 @@ A tool for brand-driven Substack content creation. Designed for a company like P
 
 ### Technology
 
-Pure React frontend (no separate backend). Private repo on GitHub. Hosted on Railway, deployed directly from GitHub.
+Pure React frontend (no separate backend). Private repo on GitHub.
+
+Deployment readiness for **GitHub -> Railway** is a required deliverable, but it is validated by repository/code review only (configuration, commands, and docs are present and coherent).
+Live deployment is explicitly prohibited during build, test, and acceptance verification for this project.
 
 - **Gemini 3.1 Flash** for small fast things.
 - **Gemini 3.1 Pro with extended thinking** for anything important.
