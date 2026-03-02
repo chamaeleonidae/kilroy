@@ -105,6 +105,7 @@ func bootstrapRunWithConfig(ctx context.Context, dotSource []byte, cfg *RunConfi
     // - applyConfigDefaults + override merge + opts.applyDefaults()
     // - parse/validate + provider/model policy + provider preflight report
     // - CXDB readiness (ensureCXDBReady) when DisableCXDB=false
+    // - invoke overrides.OnCXDBStartup(startup) after CXDB readiness when startup != nil
     // this function must NOT publish registry bundle, create CXDB context/sink,
     // allocate Engine, or start traversal.
 }
@@ -254,6 +255,10 @@ if preflightOnly && detach {
 
 if preflightOnly {
     pf, err := engine.PreflightWithConfig(ctx, dotSource, cfg, engine.RunOptions{...})
+    if err != nil {
+        fmt.Fprintln(os.Stderr, err)
+        os.Exit(1)
+    }
     // print deterministic metadata for operators
     fmt.Printf("preflight=true\n")
     fmt.Printf("run_id=%s\n", pf.RunID)
@@ -347,7 +352,7 @@ go build -o ./kilroy ./cmd/kilroy
 while IFS= read -r f; do
   echo "Validating $f"
   ./kilroy attractor validate --graph "$f"
-done < <(find demo -type f -name '*.dot' | sort)
+done < <(find demo -type f \( -name '*.dot' -o -name '*.gv' \) | sort)
 ```
 
 Expected: every validation command exits `0` and prints `ok: <file>` (any non-zero exit fails this step).
