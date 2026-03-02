@@ -22,6 +22,22 @@ The solitaire provenance is confirmed:
 
 This proves we need stronger input boundaries, not just a stale-binary fix.
 
+## Evidence Anchors
+
+These anchors are the factual basis for the proposal:
+
+1. Incident run id: `01KJPDK649C65Y07TBX1041C73` (March 2, 2026).
+2. Binary mismatch observed in investigation:
+   - run base SHA: `45b3956c...`
+   - local `./kilroy` build SHA: `cee6fe8e...` (stale, missing same-file guard)
+3. Solitaire provenance:
+   - source: `/home/user/code/kilroy/.ai/spec.md` (gitignored local scratch)
+   - copied into run snapshot/worktree at startup
+   - matching SHA256: `1f94094f76eeb687e0aabd4eca1c646edf8952ca7bc86ff1048f2f95604c3b5d`
+4. Failure mechanism:
+   - same-path copy with truncation in stale binary caused 0-byte `.ai` files
+   - worktree recreation then propagated bad/missing runtime state
+
 ## Decision
 
 Adopt a strict runtime model:
@@ -154,6 +170,14 @@ This design answers it safely:
    state before stage execution.
 7. Same-file copy path never truncates content.
 8. Input manifest digests are stable and auditable.
+
+## Reviewer Checklist
+
+1. Does the design remove implicit repo `.ai/*` ingestion?
+2. Does it preserve shared project inputs via explicit imports outside `.ai`?
+3. Does it define durability independent of git-tracked `.ai` files?
+4. Does it require hydration for new worktrees and resume?
+5. Does it include tests for clean-`HEAD` worktree recreation behavior?
 
 ## Incident-Specific Cleanup (Completed)
 
