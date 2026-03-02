@@ -962,6 +962,24 @@ func (r *CodergenRouter) runCLI(ctx context.Context, execCtx *Execution, node *m
 	}
 	codexSemantics := usesCodexCLISemantics(providerKey, exe)
 
+	// Disable Codex sandbox for manual box fan-in convergence nodes.
+	// git merge writes to .git/ metadata outside the worktree, which
+	// --sandbox workspace-write blocks. See github.com/danshapiro/kilroy/issues/49.
+	isManualBoxFanIn := false
+	if codexSemantics && execCtx != nil && execCtx.Context != nil {
+		joinNodeID := strings.TrimSpace(execCtx.Context.GetString("parallel.join_node", ""))
+		if joinNodeID != "" && joinNodeID == strings.TrimSpace(node.ID) {
+			mergeMode := strings.TrimSpace(execCtx.Context.GetString(parallelMergeModeContextKey, ""))
+			if mergeMode == "" && execCtx.Graph != nil {
+				mergeMode = classifyJoinMergeMode(execCtx.Graph, joinNodeID)
+			}
+			if mergeMode == parallelMergeModeManualBox {
+				isManualBoxFanIn = true
+				args = stripSandboxFlag(args)
+			}
+		}
+	}
+
 	// Build the base env once — used by codex initial + retries and non-codex paths.
 	baseEnv := buildBaseNodeEnv(artifactPolicyFromExecution(execCtx))
 
@@ -1042,6 +1060,10 @@ func (r *CodergenRouter) runCLI(ctx context.Context, execCtx *Execution, node *m
 	}
 	if structuredSchemaPath != "" {
 		inv["structured_output_schema_path"] = structuredSchemaPath
+	}
+	if isManualBoxFanIn {
+		inv["sandbox_disabled"] = true
+		inv["sandbox_disabled_reason"] = "manual_box_fan_in_convergence"
 	}
 	if err := writeJSON(filepath.Join(stageDir, "cli_invocation.json"), inv); err != nil {
 		return "", classifiedFailure(err, ""), nil
@@ -1888,6 +1910,19 @@ func hasArg(args []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// stripSandboxFlag removes "--sandbox <value>" from a Codex CLI arg slice.
+func stripSandboxFlag(args []string) []string {
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--sandbox" && i+1 < len(args) {
+			i++ // skip --sandbox and its value
+			continue
+		}
+		out = append(out, args[i])
+	}
+	return out
 }
 
 const defaultCodexOutputSchema = `{
