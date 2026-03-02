@@ -21,6 +21,7 @@ type SessionConfig struct {
 	DefaultCommandTimeoutMS        int
 	MaxCommandTimeoutMS            int
 	RepeatedMalformedToolCallLimit int
+	RepeatedErrorToolCallLimit     int
 	MaxSubagentDepth               int
 
 	// ToolOutputLimits overrides default per-tool truncation behavior.
@@ -72,6 +73,9 @@ func (c *SessionConfig) applyDefaults() {
 	}
 	if c.RepeatedMalformedToolCallLimit <= 0 {
 		c.RepeatedMalformedToolCallLimit = 3
+	}
+	if c.RepeatedErrorToolCallLimit <= 0 {
+		c.RepeatedErrorToolCallLimit = 3
 	}
 	if c.MaxSubagentDepth <= 0 {
 		c.MaxSubagentDepth = 1
@@ -437,6 +441,8 @@ func (s *Session) processOneInput(ctx context.Context, input string) (string, er
 	repeats := 0
 	var lastMalformedToolFP string
 	malformedRepeats := 0
+	var lastErrorToolFP string
+	errorToolRepeats := 0
 	loopWarned := false
 	ctxWarned := false
 
@@ -585,6 +591,30 @@ func (s *Session) processOneInput(ctx context.Context, input string) (string, er
 			malformedRepeats = 0
 		}
 
+		// Guardrail: repeated all-error rounds (e.g. close_agent("main_agent") looping
+		// with "unknown agent_id") burn tool budgets just like malformed-JSON loops do.
+		if errFP := repeatedErrorToolCallsFingerprint(calls, results); errFP != "" {
+			if errFP == lastErrorToolFP {
+				errorToolRepeats++
+			} else {
+				lastErrorToolFP = errFP
+				errorToolRepeats = 1
+			}
+			if s.cfg.RepeatedErrorToolCallLimit > 0 && errorToolRepeats >= s.cfg.RepeatedErrorToolCallLimit {
+				err := fmt.Errorf("repeated failing tool calls detected (repeats=%d limit=%d)",
+					errorToolRepeats, s.cfg.RepeatedErrorToolCallLimit)
+				s.emit(EventError, map[string]any{
+					"error":   err.Error(),
+					"repeats": errorToolRepeats,
+					"limit":   s.cfg.RepeatedErrorToolCallLimit,
+				})
+				return "", err
+			}
+		} else {
+			lastErrorToolFP = ""
+			errorToolRepeats = 0
+		}
+
 		for _, r := range results {
 			s.appendTurn(TurnTool, llm.ToolResultNamed(r.CallID, r.ToolName, r.Output, r.IsError))
 		}
@@ -647,6 +677,33 @@ func malformedToolCallsFingerprint(calls []llm.ToolCallData, results []ToolExecR
 		b.WriteString(strings.TrimSpace(calls[i].Name))
 		b.WriteByte(':')
 		b.WriteString(shortHash(calls[i].Arguments))
+		b.WriteByte(';')
+	}
+	return b.String()
+}
+
+// repeatedErrorToolCallsFingerprint returns a stable key when every call in the
+// round produced an error. Used to detect stuck-closure loops (e.g.,
+// close_agent("main_agent") → "unknown agent_id" repeating indefinitely).
+func repeatedErrorToolCallsFingerprint(calls []llm.ToolCallData, results []ToolExecResult) string {
+	if len(calls) == 0 || len(calls) != len(results) {
+		return ""
+	}
+	allErr := true
+	for i := range results {
+		if !results[i].IsError {
+			allErr = false
+			break
+		}
+	}
+	if !allErr {
+		return ""
+	}
+	var b strings.Builder
+	for i := range calls {
+		b.WriteString(strings.TrimSpace(calls[i].Name))
+		b.WriteByte(':')
+		b.WriteString(shortHash([]byte(results[i].FullOutput)))
 		b.WriteByte(';')
 	}
 	return b.String()
