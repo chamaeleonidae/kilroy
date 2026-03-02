@@ -100,10 +100,36 @@ parallel branches. This proposal uses explicit lineage.
 1. merge happens once, at fan-in boundary
 2. default merge policy for `./.ai/runs/<run_id>/...` is `none`
    (no implicit cross-branch promotion)
-3. optional explicit promotion list can be configured at fan-in
+3. optional explicit promotion list can be configured via run config
 4. conflicting writes in promoted paths produce deterministic
    `failure_reason=input_snapshot_conflict` with conflict list
 5. successful merge creates new run head `Rn+1`
+
+### Fan-In Promotion Config (Concrete Schema)
+
+The optional promotion list is defined in run config at:
+`inputs.materialize.fan_in.promote_run_scoped`.
+
+Entries are run-scoped-relative paths (or globs) rooted at
+`./.ai/runs/<run_id>/`.
+
+```yaml
+inputs:
+  materialize:
+    fan_in:
+      promote_run_scoped:
+        - postmortem_latest.md
+        - review_final.md
+```
+
+Validation rules:
+
+1. entries must be non-empty
+2. entries must be relative (no absolute paths, no `..` segments)
+3. entries are interpreted only within run-scoped root
+   `./.ai/runs/<run_id>/`
+4. normalized expansion is deterministic and de-duplicates exact matches
+5. unresolved promotion globs are best-effort (no failure by themselves)
 
 ### Resume
 
@@ -180,30 +206,25 @@ The proposal now includes concrete migration for known root `.ai` assumptions.
 
 1. `internal/attractor/engine/stage_status_contract.go`
    - keep primary `worktree/status.json`
-   - change fallback order:
-     1. `worktree/.ai/runs/<run_id>/status.json`
-     2. legacy `worktree/.ai/status.json` (compatibility window)
+   - use single fallback path:
+     `worktree/.ai/runs/<run_id>/status.json`
 2. `internal/attractor/runstate/snapshot.go`
-   - read postmortem/review first from
+   - read postmortem/review from
      `worktree/.ai/runs/<run_id>/postmortem_latest.md` and
      `worktree/.ai/runs/<run_id>/review_final.md`
-   - then legacy fallback to root `.ai/...` paths
 3. `cmd/kilroy/attractor_status_follow.go`
    - update displayed source labels to new run-scoped paths
-   - keep legacy-path display fallback during migration
 4. `internal/attractor/engine/failure_dossier.go`
-   - write/read run-scoped path first:
+   - write/read run-scoped path only:
      `worktree/.ai/runs/<run_id>/failure_dossier.json`
-   - legacy fallback/read compatibility for `worktree/.ai/failure_dossier.json`
-     during migration window
 5. status-contract metadata surfaces
    - keep contract env keys stable, but update fallback path values and prompt
-     preamble examples to run-scoped-first
+     preamble examples to run-scoped-only fallback
    - update invocation metadata (`status_fallback_path`) to reflect the new
      path order
 6. status/snapshot test + fixture surfaces
-   - patch tests/fixtures that assert legacy root `.ai/status.json`,
-     postmortem/review, and related fallback behavior
+   - patch tests/fixtures that assert root `.ai/status.json`,
+     postmortem/review, or failure_dossier legacy fallbacks
 
 ## Skills, Templates, and Reference Graph Impacts
 
@@ -213,31 +234,23 @@ This migration is not complete if only engine internals change.
    `skills/create-dotfile/reference_template.dot`
    - update producer/consumer guidance from root `.ai/*` to run-scoped
      `./.ai/runs/$KILROY_RUN_ID/...` where content is run scratch state
-   - preserve compatibility guidance where dual-read is intentionally supported
 2. `skills/build-dod/SKILL.md`
-   - update evidence path contract to run-scoped locations (or explicitly define
-     compatibility behavior) so generated DoDs do not reintroduce root-path
-     coupling
+   - update evidence path contract to run-scoped locations so generated DoDs do
+     not reintroduce root-path coupling
 3. `skills/create-runfile/reference_run_template.yaml`
    - remove implicit root `.ai` default include behavior
-   - illustrate explicit imports for source-of-truth inputs
+   - illustrate explicit imports for source-of-truth inputs and explicit
+     `fan_in.promote_run_scoped` examples when needed
 4. canonical docs/demos/reference DOTs (for example in `demo/` and
    `docs/strongdm/dot specs/`)
    - replace root `.ai/*` path assumptions where they model run scratch outputs
-   - keep any intentional legacy examples clearly labeled as compatibility-only
-
-## Compatibility Window
-
-1. one release supports dual-read (run-scoped first, legacy fallback second)
-2. emit deprecation warnings when legacy root `.ai` paths are consumed
-3. remove legacy fallback in the next major cleanup after migration telemetry
-   confirms low usage
 
 ## Implementation Plan
 
 1. config + validation
    - add `imports` schema to `InputMaterializationConfig`
    - implement normalize/validate mapping and conflict rules
+   - add `inputs.materialize.fan_in.promote_run_scoped` schema + validation
 2. defaults + template migration
    - change implicit materialization defaults to no root `.ai` import
    - update runfile reference template and config-default tests
@@ -249,7 +262,7 @@ This migration is not complete if only engine internals change.
    - implement explicit dynamic-path rules for run-scoped state
 5. runtime path migration
    - patch status/snapshot/status-follow + failure-dossier and related contract
-     surfaces to run-scoped-first dual-read
+     surfaces to run-scoped-only (no legacy root `.ai` fallback)
 6. tests + fixtures
    - patch integration/unit fixtures that assert legacy root `.ai` defaults and
      fallback paths
@@ -267,6 +280,8 @@ This migration is not complete if only engine internals change.
    - branch A writes run-scoped file, branch B cannot observe it before fan-in
 2. deterministic fan-in merge:
    - explicit promotion conflict yields `input_snapshot_conflict`
+   - promotion list resolution from
+     `inputs.materialize.fan_in.promote_run_scoped` is deterministic
 3. lineage resume:
    - recreated worktree restores from persisted run/branch lineage state
 4. conditional contracts:
@@ -282,10 +297,10 @@ This migration is not complete if only engine internals change.
    - run-scoped lineage state is restored on branch/resume without relying on
      static import patterns
 8. path migration:
-   - status fallback and status-follow prefer run-scoped `.ai/runs/<run_id>`
-   - postmortem/review loading prefers run-scoped `.ai/runs/<run_id>`
-   - failure dossier path prefers run-scoped `.ai/runs/<run_id>`
-   - legacy root `.ai` fallback still works during compatibility window
+   - status fallback and status-follow use run-scoped `.ai/runs/<run_id>`
+   - postmortem/review loading uses run-scoped `.ai/runs/<run_id>`
+   - failure dossier path uses run-scoped `.ai/runs/<run_id>`
+   - root `.ai` legacy fallback paths are rejected/not consumed
 9. skills/template/example drift:
    - reference template and generated guidance do not hardcode legacy root `.ai`
      scratch paths
@@ -313,7 +328,9 @@ This migration is not complete if only engine internals change.
 7. Does it define a concrete `imports` schema and validator behavior?
 8. Does it include required updates for skills, reference template dotfile, and
    canonical demo/reference DOTs?
-9. Does it preserve canonical `logs_root` artifacts and Appendix C.1 semantics?
+9. Does it remove legacy root `.ai` runtime fallbacks immediately (no
+   compatibility window)?
+10. Does it preserve canonical `logs_root` artifacts and Appendix C.1 semantics?
 
 ## Incident-Specific Cleanup
 
