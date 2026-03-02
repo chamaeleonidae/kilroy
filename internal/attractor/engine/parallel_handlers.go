@@ -166,9 +166,9 @@ func (h *ParallelHandler) Execute(ctx context.Context, exec *Execution, node *mo
 		Notes:         fmt.Sprintf("parallel fan-out complete (%d branches), join=%s; %s", len(results), joinID, policyOutcome.Notes),
 		FailureReason: policyOutcome.FailureReason,
 		ContextUpdates: map[string]any{
-			"parallel.join_node":            joinID,
-			parallelMergeModeContextKey:     classifyJoinMergeMode(exec.Graph, joinID),
-			"parallel.results":              contextResults,
+			"parallel.join_node":        joinID,
+			parallelMergeModeContextKey: classifyJoinMergeMode(exec.Graph, joinID),
+			"parallel.results":          contextResults,
 		},
 		Meta: map[string]any{
 			"kilroy.git_checkpoint_sha": baseSHA,

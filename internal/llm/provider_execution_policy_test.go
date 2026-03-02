@@ -37,9 +37,9 @@ func TestExecutionPolicy_NonKimi(t *testing.T) {
 
 func TestExecutionPolicy_ModelCap(t *testing.T) {
 	cases := []struct {
-		provider    string
-		model       string
-		wantMaxCap  int
+		provider   string
+		model      string
+		wantMaxCap int
 	}{
 		// Models below Anthropic default (65,536)
 		{"anthropic", "claude-3.5-sonnet", 8192},
