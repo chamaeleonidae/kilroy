@@ -30,10 +30,10 @@ func TestResume_ImplicitFanOut_DispatchesParallelBranches(t *testing.T) {
 digraph G {
   graph [goal="test implicit fan-out resume"]
   start  [shape=Mdiamond]
-  source [shape=box, llm_provider=openai, llm_model=gpt-5.3-codex, prompt="source"]
-  branch_a [shape=box, llm_provider=openai, llm_model=gpt-5.3-codex, prompt="a"]
-  branch_b [shape=box, llm_provider=openai, llm_model=gpt-5.3-codex, prompt="b"]
-  synth [shape=box, llm_provider=openai, llm_model=gpt-5.3-codex, prompt="synth"]
+  source [shape=box, llm_provider=openai, llm_model=gpt-5.4, prompt="source"]
+  branch_a [shape=box, llm_provider=openai, llm_model=gpt-5.4, prompt="a"]
+  branch_b [shape=box, llm_provider=openai, llm_model=gpt-5.4, prompt="b"]
+  synth [shape=box, llm_provider=openai, llm_model=gpt-5.4, prompt="synth"]
   exit  [shape=Msquare]
 
   start -> source

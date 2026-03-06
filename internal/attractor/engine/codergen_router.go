@@ -94,7 +94,7 @@ func (r *CodergenRouter) Run(ctx context.Context, exec *Execution, node *model.N
 		return "", nil, fmt.Errorf("no backend configured for provider %s", prov)
 	}
 
-	// CLI-only model override: models like gpt-5.3-codex-spark have no API
+	// CLI-only model override: models like gpt-5.4-spark have no API
 	// endpoint. Force CLI backend regardless of provider configuration.
 	if isCLIOnlyModel(modelID) && backend != BackendCLI {
 		warnEngine(exec, fmt.Sprintf("cli-only model override: node=%s model=%s backend=%s->cli", node.ID, modelID, backend))
@@ -636,14 +636,14 @@ func pickFailoverModel(provider string, catalog *modeldb.Catalog) string {
 	case "openai":
 		// Prefer the repo's pinned default, even if the catalog doesn't contain it yet.
 		if catalog != nil && catalog.Models != nil {
-			if _, ok := catalog.Models["gpt-5.3-codex"]; ok {
-				return "gpt-5.3-codex"
+			if _, ok := catalog.Models[modelmeta.DefaultOpenAIModel]; ok {
+				return modelmeta.DefaultOpenAIModel
 			}
 			if _, ok := catalog.Models["codex-mini-latest"]; ok {
 				return "codex-mini-latest"
 			}
 		}
-		return "gpt-5.3-codex"
+		return modelmeta.DefaultOpenAIModel
 	case "kimi":
 		// Keep failover to Kimi pinned to the known stable coding model.
 		return "kimi-k2.5"
