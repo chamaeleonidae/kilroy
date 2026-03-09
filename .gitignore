@@ -16,3 +16,6 @@
 /dist/
 firebase-debug.log
 .claude/worktrees/
+
+.idea
+.DS_Store

@@ -1,6 +1,7 @@
 ---
 name: auto-update
 description: Use when the user wants to pull the latest Kilroy source from the upstream remote (https://github.com/danshapiro/kilroy.git) and build/install the new binary.
+allowed-tools: Bash(git *), Bash(go *), Bash(kilroy *)
 ---
 
 # Auto-Update Kilroy
@@ -85,22 +86,31 @@ If tests fail, report them to the user. Do not install a broken binary.
 
 Show the user the old and new version strings.
 
-### 10. Install (optional — ask the user)
+### 10. Install
 
-The built binary is `./kilroy` in the repo root. Ask the user where they want it installed:
-
-- **Repo-local use**: leave it in place — invoke as `./kilroy`
-- **PATH install**: copy to a directory in `$PATH`, e.g.:
+Install the binary to `$GOPATH/bin` (i.e. `~/go/bin`):
 
 ```bash
-# Example: install to /usr/local/bin (may need sudo)
-cp ./kilroy /usr/local/bin/kilroy
-
-# Or go install (installs to $GOPATH/bin or $HOME/go/bin)
 go install ./cmd/kilroy
 ```
 
-Confirm the destination with the user before copying.
+Then ensure `~/go/bin` is on `$PATH`. Check `~/.zshrc` first:
+
+```bash
+grep "go/bin" ~/.zshrc
+```
+
+If not present, add it:
+
+```bash
+echo '\nexport PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+```
+
+Verify the install:
+
+```bash
+which kilroy && kilroy --version
+```
 
 ## Safety
 
